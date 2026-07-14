@@ -1,0 +1,20 @@
+{
+  "model_name": "CNN_LSTM_Attention_IDS",
+  "trained_at": "2026-07-02T15:30:18.540356",
+  "training_time_seconds": 144.458892,
+  "total_epochs_trained": 17,
+  "input_shape": [
+    10,
+    40
+  ],
+  "num_classes": 5,
+  "class_names": [
+    "Normal",
+    "DoS",
+    "Probe",
+    "R2L",
+    "U2R"
+  ],
+  "sequence_length": 10,
+  "dataset_used": "nsl-kdd"
+}

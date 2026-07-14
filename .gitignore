@@ -1,0 +1,56 @@
+# ──────────────────────────────────────────────
+# Python
+# ──────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+
+# ──────────────────────────────────────────────
+# Project runtime artifacts
+# ──────────────────────────────────────────────
+logs/
+outputs/
+data/processed/
+scratch/
+
+# Raw dataset (auto-downloaded at runtime)
+data/raw/
+
+# ──────────────────────────────────────────────
+# Node.js / Frontend
+# ──────────────────────────────────────────────
+node_modules/
+frontend/dist/
+frontend/assets/.aistudio/
+*.log
+npm-debug.log*
+
+# ──────────────────────────────────────────────
+# IDE & OS
+# ──────────────────────────────────────────────
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ──────────────────────────────────────────────
+# Environment & secrets
+# ──────────────────────────────────────────────
+.env
+.env.*
+!.env.example

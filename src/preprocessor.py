@@ -31,9 +31,8 @@ class DataPreprocessor:
         self._is_fitted = False
 
     def fit_transform(
-        self, train_df: pd.DataFrame, test_df: pd.DataFrame
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-        # Keep local fit_transform for reference (training is in Colab)
+        self, train_df: pd.DataFrame, test_df: pd.DataFrame, val_size: float = 0.15
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         train = train_df.copy()
         test = test_df.copy()
 
@@ -65,18 +64,51 @@ class DataPreprocessor:
         y_train = self.target_encoder.transform(train_labels)
         y_test = self.target_encoder.transform(test_labels)
 
-        # Extract features and scale
+        # Extract features
         drop_cols = ["label", "attack_category"]
         feature_cols = [c for c in train.columns if c not in drop_cols]
         X_train = train[feature_cols].values.astype(np.float32)
         X_test = test[feature_cols].values.astype(np.float32)
 
-        self.scaler.fit(X_train)
-        X_train = self.scaler.transform(X_train)
+        # Split train and validation splits to prevent validation leakage
+        from sklearn.model_selection import train_test_split
+        X_train_split, X_val_split, y_train_split, y_val_split = train_test_split(
+            X_train, y_train, test_size=val_size, random_state=42, stratify=y_train
+        )
+
+        # Scale features (fit only on the training split)
+        self.scaler.fit(X_train_split)
+        X_train_split = self.scaler.transform(X_train_split)
+        X_val_split = self.scaler.transform(X_val_split)
         X_test = self.scaler.transform(X_test)
 
+        # Apply RandomOverSampler to handle class imbalance on the training split
+        from imblearn.over_sampling import RandomOverSampler
+        
+        # Calculate dynamic target sampling strategy to oversample minority classes
+        # to 30% of the majority class count
+        unique_classes, class_counts = np.unique(y_train_split, return_counts=True)
+        majority_class_count = max(class_counts)
+        target_count = int(majority_class_count * 0.3)
+        
+        sampling_strategy = {}
+        for cls, count in zip(unique_classes, class_counts):
+            if count < target_count:
+                sampling_strategy[int(cls)] = target_count
+            else:
+                sampling_strategy[int(cls)] = count
+                
+        logger.info(f"Oversampling target strategy: {sampling_strategy}")
+        ros = RandomOverSampler(sampling_strategy=sampling_strategy, random_state=42)
+        X_train_resampled, y_train_resampled = ros.fit_resample(X_train_split, y_train_split)
+        
+        # Shuffle training split
+        shuffle_idx = np.random.RandomState(42).permutation(len(X_train_resampled))
+        X_train_resampled = X_train_resampled[shuffle_idx]
+        y_train_resampled = y_train_resampled[shuffle_idx]
+
         self._is_fitted = True
-        return X_train, y_train, X_test, y_test
+        return X_train_resampled, y_train_resampled, X_val_split, y_val_split, X_test, y_test
 
     def transform_single(self, record: dict) -> np.ndarray:
         """

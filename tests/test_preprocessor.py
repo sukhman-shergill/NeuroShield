@@ -15,7 +15,7 @@ class TestDataPreprocessor(unittest.TestCase):
         # Build a synthetic DataFrame matching NSL-KDD schema
         # We need all columns in config.COLUMN_NAMES
         np.random.seed(42)
-        num_samples = 20
+        num_samples = 100
         
         data = {}
         for col in config.COLUMN_NAMES:
@@ -36,35 +36,33 @@ class TestDataPreprocessor(unittest.TestCase):
                 data[col] = np.random.randn(num_samples)
                 
         self.df = pd.DataFrame(data)
-        self.df["attack_category"] = np.random.choice(config.CLASS_NAMES, num_samples)
+        # Ensure balanced classes: exactly 20 of each of the 5 classes
+        self.df["attack_category"] = np.tile(config.CLASS_NAMES, 20)
         self.df = self.df.drop(columns=["difficulty_level"], errors="ignore")
         
     def test_fit_transform(self):
-        # Split into dummy train and test
-        train_df = self.df.iloc[:15].copy()
-        test_df = self.df.iloc[15:].copy()
+        # Split into dummy train and test (80 train, 20 test)
+        train_df = self.df.iloc[:80].copy()
+        test_df = self.df.iloc[80:].copy()
         
-        X_train, y_train, X_test, y_test = self.preprocessor.fit_transform(train_df, test_df)
+        X_train, y_train, X_val, y_val, X_test, y_test = self.preprocessor.fit_transform(train_df, test_df, val_size=0.25)
         
-        # Assertions on shapes
-        # We dropped 1 constant column (num_outbound_cmds)
-        # We also drop label and attack_category during feature extraction
         expected_features_count = len(config.COLUMN_NAMES) - 3
         
-        self.assertEqual(X_train.shape[0], 15)
+        # Since it oversamples, the resampled training set should have balanced/larger shapes
         self.assertEqual(X_train.shape[1], expected_features_count)
-        self.assertEqual(X_test.shape[0], 5)
+        self.assertEqual(X_val.shape[0], 20)  # 25% of 80 is 20
+        self.assertEqual(X_val.shape[1], expected_features_count)
+        self.assertEqual(X_test.shape[0], 20)
         self.assertEqual(X_test.shape[1], expected_features_count)
-        self.assertEqual(y_train.shape[0], 15)
-        self.assertEqual(y_test.shape[0], 5)
+        self.assertEqual(len(y_train), len(X_train))
         
     def test_transform_single(self):
-        # We first need to fit the preprocessor
+        # Fit preprocessor
         self.preprocessor.fit_transform(self.df, self.df)
         
         # Take a single record as dict
         record = self.df.iloc[0].to_dict()
-        # Add mock IP columns that the live system injects
         record["source_ip"] = "192.168.1.100"
         record["dest_ip"] = "10.0.0.1"
         

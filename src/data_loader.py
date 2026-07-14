@@ -40,7 +40,8 @@ def download_file(url: str, save_path: str) -> None:
 
 
 def download_dataset() -> None:
-    """Download test NSL-KDD file if not already present."""
+    """Download train and test NSL-KDD files if not already present."""
+    download_file(config.DATASET_URLS["train"], config.TRAIN_FILE)
     download_file(config.DATASET_URLS["test"], config.TEST_FILE)
 
 
@@ -94,13 +95,15 @@ def load_dataset(file_path: str) -> pd.DataFrame:
     return df
 
 
-def load_train_test() -> tuple[None, pd.DataFrame]:
+def load_train_test() -> tuple[pd.DataFrame, pd.DataFrame]:
     """
-    Download (if needed) and load only the test dataset.
+    Download (if needed) and load the train and test datasets.
 
     Returns:
-        A tuple of (None, test_df) DataFrame.
+        A tuple of (train_df, test_df) DataFrames.
     """
     download_dataset()
+    train_df = load_dataset(config.TRAIN_FILE)
     test_df = load_dataset(config.TEST_FILE)
-    return None, test_df
+    return train_df, test_df
+

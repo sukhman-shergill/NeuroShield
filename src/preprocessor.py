@@ -82,24 +82,11 @@ class DataPreprocessor:
         X_val_split = self.scaler.transform(X_val_split)
         X_test = self.scaler.transform(X_test)
 
-        # Apply RandomOverSampler to handle class imbalance on the training split
+        # Apply RandomOverSampler to achieve full class balance
         from imblearn.over_sampling import RandomOverSampler
         
-        # Calculate dynamic target sampling strategy to oversample minority classes
-        # to 30% of the majority class count
-        unique_classes, class_counts = np.unique(y_train_split, return_counts=True)
-        majority_class_count = max(class_counts)
-        target_count = int(majority_class_count * 0.3)
-        
-        sampling_strategy = {}
-        for cls, count in zip(unique_classes, class_counts):
-            if count < target_count:
-                sampling_strategy[int(cls)] = target_count
-            else:
-                sampling_strategy[int(cls)] = count
-                
-        logger.info(f"Oversampling target strategy: {sampling_strategy}")
-        ros = RandomOverSampler(sampling_strategy=sampling_strategy, random_state=42)
+        logger.info("Applying RandomOverSampler to balance all classes...")
+        ros = RandomOverSampler(random_state=42)
         X_train_resampled, y_train_resampled = ros.fit_resample(X_train_split, y_train_split)
         
         # Shuffle training split

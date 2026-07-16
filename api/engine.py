@@ -6,12 +6,15 @@ Endpoints:
     POST /predict/batch             - Classify multiple records at once
     POST /predict/file              - Classify records from an uploaded CSV/txt file
     GET  /model/info                - Get model metadata and performance metrics
+    GET  /model/architecture        - Return model layer configuration
+    POST /explain                   - Explain a prediction (attention + feature importance)
     GET  /alerts                    - Retrieve live security alerts (real-time detections)
     POST /alerts/action             - Update alert action state (ISOLATE, REVIEW, etc.)
     GET  /connections               - Retrieve active connections
     GET  /stats                     - Retrieve real-time server stats (uptime, CPU, memory, packet rate)
     GET  /logs                      - Retrieve real backend log stream from pipeline.log
     GET  /topology                  - Retrieve active topology node and flow mapping data
+    GET  /evaluation                - Serve pre-computed evaluation artifacts
     GET  /reports                   - List generated compliance reports
     POST /reports/generate          - Generate a new CSV compliance report
     GET  /reports/download/<name>   - Download a generated report file
@@ -39,6 +42,96 @@ from utils.logger import get_logger
 logger = get_logger(__name__)
 
 app = Flask(__name__)
+
+# ---------------------------------------------------------------------------
+# Rate limiting (optional dependency — graceful degradation if not installed)
+# ---------------------------------------------------------------------------
+try:
+    from flask_limiter import Limiter
+    from flask_limiter.util import get_remote_address
+    limiter = Limiter(
+        app=app,
+        key_func=get_remote_address,
+        default_limits=["500/day", "200/hour"],
+        storage_uri="memory://",
+    )
+    _rate_limiting_enabled = True
+    logger.info("Rate limiting enabled (flask-limiter).")
+except ImportError:
+    limiter = None
+    _rate_limiting_enabled = False
+    logger.warning("flask-limiter not installed — rate limiting disabled. "
+                   "Install with: pip install flask-limiter")
+
+
+def _rate_limit(limit_str: str):
+    """Decorator that applies rate limiting only if limiter is available."""
+    def decorator(f):
+        if _rate_limiting_enabled and limiter is not None:
+            return limiter.limit(limit_str)(f)
+        return f
+    return decorator
+
+
+# ---------------------------------------------------------------------------
+# Input validation
+# ---------------------------------------------------------------------------
+# Features required for UNSW-NB15 predictions
+_REQUIRED = [
+    "dur", "proto", "service", "state", "spkts", "dpkts",
+    "sbytes", "dbytes", "rate",
+]
+
+
+def validate_record(record: dict) -> tuple[bool, str]:
+    """
+    Validate that an incoming prediction record has the minimum required fields.
+
+    Returns:
+        (is_valid, error_message) tuple.
+        error_message is empty string when valid.
+    """
+    if not record or not isinstance(record, dict):
+        return False, "Request body must be a non-empty JSON object."
+
+    missing  = [f for f in _REQUIRED if f not in record]
+
+    if missing:
+        shown = missing[:5]
+        suffix = f" (+{len(missing) - 5} more)" if len(missing) > 5 else ""
+        return False, f"Missing required features: {shown}{suffix}"
+
+    return True, ""
+
+
+# ---------------------------------------------------------------------------
+# Explainability state (lazy-initialised on first /explain request)
+# ---------------------------------------------------------------------------
+_attention_explainer = None
+_feature_explainer   = None
+
+
+def get_explainers():
+    """Lazy-load explainability objects on first use."""
+    global _attention_explainer, _feature_explainer
+    if _attention_explainer is None:
+        try:
+            from src.explainer import AttentionExplainer, FeatureExplainer
+            import json as _json
+            pred = get_predictor()
+            with open(config.MODEL_METADATA_PATH, "r") as fh:
+                meta = _json.load(fh)
+            input_shape = tuple(meta["input_shape"])
+            _attention_explainer = AttentionExplainer(pred.model, input_shape)
+            _feature_explainer   = FeatureExplainer(
+                pred.model,
+                num_features=input_shape[1],
+                top_k=10,
+            )
+            logger.info("Explainability engines initialised.")
+        except Exception as e:
+            logger.error(f"Failed to initialise explainers: {e}")
+    return _attention_explainer, _feature_explainer
 
 # Track server start time
 server_start_time = time.time()
@@ -126,8 +219,17 @@ def get_predictor() -> AttackPredictor:
 
 @app.after_request
 def add_cors_headers(response):
-    """Enable CORS headers for development."""
-    response.headers["Access-Control-Allow-Origin"] = "*"
+    """
+    Set CORS headers using a configured allow-list (not a wildcard).
+
+    ALLOWED_ORIGINS is configured in config.py and can be overridden via
+    the NEUROSHIELD_ORIGINS environment variable for production deployments.
+    Using '*' in production allows any website to call the API (CSRF risk).
+    """
+    origin = request.headers.get("Origin", "")
+    allowed = getattr(config, "ALLOWED_ORIGINS", ["http://localhost:3000"])
+    if origin in allowed:
+        response.headers["Access-Control-Allow-Origin"] = origin
     response.headers["Access-Control-Allow-Headers"] = "Content-Type,Authorization"
     response.headers["Access-Control-Allow-Methods"] = "GET,POST,OPTIONS"
     return response
@@ -165,12 +267,20 @@ def record_alert_and_connection(record: dict, prediction: dict):
     # Generate or extract IP addresses
     source_ip = record.get("source_ip", f"192.168.1.{100 + (len(live_connections) % 150)}")
     dest_ip = record.get("dest_ip", f"10.0.0.{50 + (len(live_connections) % 50)}")
-    protocol = f"{record.get('protocol_type', 'tcp').upper()} / {record.get('service', 'http')}"
+    
+    # UNSW-NB15 uses 'proto', fallback to 'protocol_type'
+    proto_val = record.get("proto", record.get("protocol_type", "tcp"))
+    protocol = f"{str(proto_val).upper()} / {record.get('service', 'http')}"
 
     # Track active connection load
     # Use standard features if present to calculate realistic load
     load_val = 10
-    if "count" in record:
+    if "rate" in record:
+        try:
+            load_val = min(100, int(float(record["rate"]) / 100))
+        except Exception:
+            pass
+    elif "count" in record:
         try:
             load_val = min(100, int(float(record["count"]) * 2 + float(record.get("srv_count", 0))))
         except Exception:
@@ -182,8 +292,8 @@ def record_alert_and_connection(record: dict, prediction: dict):
         live_connections[source_ip] = {
             "sourceIp": source_ip,
             "destIp": dest_ip,
-            "protocol": record.get("protocol_type", "tcp").upper(),
-            "load": load_val,
+            "protocol": str(proto_val).upper(),
+            "load": max(5, load_val),
             "last_active": time.time()
         }
 
@@ -209,35 +319,34 @@ def record_alert_and_connection(record: dict, prediction: dict):
 
 
 @app.route("/predict", methods=["POST"])
+@_rate_limit("60/minute")
 def predict_single():
     """Classify a single network connection record."""
     try:
-        pred = get_predictor()
         record = request.get_json()
 
-        if not record:
-            return jsonify({"error": "Request body must be a JSON object with features"}), 400
+        # Validate required fields before touching the model
+        is_valid, err_msg = validate_record(record)
+        if not is_valid:
+            return jsonify({"error": err_msg}), 400
 
-        # Remove extra tags before predicting
+        pred = get_predictor()
+
+        # Strip metadata tags before predicting
         pred_record = {
             k: v for k, v in record.items()
-            if k not in ["source_ip", "dest_ip", "label", "attack_category", "difficulty_level"]
+            if k not in ["source_ip", "dest_ip", "label", "attack_category",
+                         "difficulty_level", "id", "attack_cat"]
         }
 
         result = pred.predict_record(pred_record)
         record_alert_and_connection(record, result)
 
-        return jsonify({
-            "status": "success",
-            "prediction": result,
-        })
+        return jsonify({"status": "success", "prediction": result})
 
     except Exception as e:
         logger.error(f"Prediction error: {traceback.format_exc()}")
-        return jsonify({
-            "status": "error",
-            "message": str(e),
-        }), 500
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 
 @app.route("/predict/batch", methods=["POST"])
@@ -303,7 +412,7 @@ def predict_file():
 
         # Read into DataFrame
         first_line = content_str.split("\n")[0]
-        has_headers = "duration" in first_line.lower()
+        has_headers = "dur" in first_line.lower() or "proto" in first_line.lower()
 
         if has_headers:
             df = pd.read_csv(io.StringIO(content_str))
@@ -311,16 +420,16 @@ def predict_file():
             df = pd.read_csv(
                 io.StringIO(content_str),
                 header=None,
-                names=config.COLUMN_NAMES[:len(first_line.split(","))]
+                names=config.FEATURE_NAMES[:len(first_line.split(","))]
             )
 
         if len(df) == 0:
             return jsonify({"error": "No records found in file"}), 400
 
         actual_categories = []
-        if "label" in df.columns:
+        if "attack_cat" in df.columns:
             from src.data_loader import map_attack_label
-            df["attack_category"] = df["label"].astype(str).str.strip().str.rstrip(".").apply(map_attack_label)
+            df["attack_category"] = df["attack_cat"].apply(map_attack_label)
             actual_categories = df["attack_category"].tolist()
         elif "attack_category" in df.columns:
             actual_categories = df["attack_category"].tolist()
@@ -744,16 +853,84 @@ def get_model_architecture():
             "training": {
                 "optimizer": "Adam",
                 "learning_rate": config.LEARNING_RATE,
-                "loss": "categorical_crossentropy",
+                "loss": "FocalLoss",
+                "focal_gamma": config.FOCAL_LOSS_GAMMA,
+                "focal_alpha": config.FOCAL_LOSS_ALPHA,
+                "early_stopping_monitor": "val_macro_f1",
                 "batch_size": config.BATCH_SIZE,
                 "epochs": config.EPOCHS,
                 "early_stopping_patience": config.EARLY_STOPPING_PATIENCE,
                 "l2_regularization": config.L2_REGULARIZATION,
                 "sequence_length": config.SEQUENCE_LENGTH,
-                "dataset": "NSL-KDD",
+                "dataset": config.ACTIVE_DATASET.upper(),
             },
         },
     })
+
+
+@app.route("/explain", methods=["POST"])
+@_rate_limit("20/minute")
+def explain_prediction():
+    """
+    Explain a prediction using attention weights and feature importance.
+
+    Request body: same JSON as /predict (a single connection record).
+
+    Returns:
+      {
+        "prediction": { predicted_class, confidence, all_probabilities },
+        "attention_explanation": { attention_weights, top_time_steps, summary },
+        "feature_explanation":   { top_features, baseline_confidence, summary }
+      }
+    """
+    try:
+        record = request.get_json()
+        is_valid, err_msg = validate_record(record)
+        if not is_valid:
+            return jsonify({"error": err_msg}), 400
+
+        pred = get_predictor()
+        attn_explainer, feat_explainer = get_explainers()
+
+        # Strip metadata
+        pred_record = {
+            k: v for k, v in record.items()
+            if k not in ["source_ip", "dest_ip", "label", "attack_category",
+                         "difficulty_level", "id", "attack_cat"]
+        }
+
+        # Get prediction
+        result = pred.predict_record(pred_record)
+        predicted_class_idx = config.CLASS_NAMES.index(result["predicted_class"])
+
+        # Build the sequence used for this prediction (from buffer)
+        import numpy as np
+        from src.sequence_builder import build_single_sequence
+        buffer_array = np.array(pred._record_buffer, dtype=np.float32)
+        sequence = build_single_sequence(buffer_array, config.SEQUENCE_LENGTH)
+
+        # Attention explanation (fast — always available)
+        attn_explanation = {}
+        if attn_explainer:
+            attn_explanation = attn_explainer.explain(sequence)
+
+        # Feature importance explanation
+        feat_explanation = {}
+        if feat_explainer:
+            feat_explanation = feat_explainer.explain(sequence, predicted_class_idx)
+
+        record_alert_and_connection(record, result)
+
+        return jsonify({
+            "status": "success",
+            "prediction": result,
+            "attention_explanation": attn_explanation,
+            "feature_explanation":   feat_explanation,
+        })
+
+    except Exception as e:
+        logger.error(f"Explain error: {traceback.format_exc()}")
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 
 @app.route("/reports", methods=["GET"])

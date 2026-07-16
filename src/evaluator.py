@@ -2,10 +2,25 @@
 Model evaluator for the CNN-LSTM intrusion detection model.
 
 Generates:
-- Classification report (precision, recall, F1 per class)
-- Confusion matrix (raw and normalized)
-- ROC-AUC curves (one-vs-rest)
-- All metrics saved as JSON for dashboard integration
+  - Classification report (precision, recall, F1 per class)
+  - per_class_metrics.json  ← clean schema for React dashboard
+  - Confusion matrix (raw and normalized PNG + JSON)
+  - ROC-AUC curves (one-vs-rest PNG + JSON)
+  - Attack distribution comparison PNG + JSON
+  - All metrics saved as JSON for dashboard integration
+
+per_class_metrics.json schema:
+  {
+    "overall": {"accuracy": 0.80, "weighted_f1": 0.79, "macro_f1": 0.64},
+    "classes": [
+      {
+        "name": "Normal",
+        "precision": 0.95, "recall": 0.80, "f1": 0.87,
+        "support": 7456, "roc_auc": 0.98
+      },
+      ...
+    ]
+  }
 """
 
 import json
@@ -40,7 +55,7 @@ def evaluate_model(
     Evaluate the trained model on test data and generate all metrics and plots.
 
     Args:
-        model: Trained Keras model.
+        model:  Trained Keras model.
         X_test: Test sequences, shape (num_samples, seq_len, features).
         y_test: One-hot test labels, shape (num_samples, num_classes).
 
@@ -66,21 +81,36 @@ def evaluate_model(
         y_true, y_pred,
         target_names=config.CLASS_NAMES,
     )
-
     logger.info(f"\n{report_text}")
 
     overall_accuracy = accuracy_score(y_true, y_pred)
-    overall_f1 = f1_score(y_true, y_pred, average="weighted")
-    logger.info(f"Overall Accuracy: {overall_accuracy:.4f}")
-    logger.info(f"Weighted F1 Score: {overall_f1:.4f}")
+    overall_f1       = f1_score(y_true, y_pred, average="weighted")
+    overall_macro_f1 = f1_score(y_true, y_pred, average="macro")
 
-    # Save classification report as JSON
+    logger.info(f"Overall Accuracy:    {overall_accuracy:.4f}")
+    logger.info(f"Weighted F1 Score:   {overall_f1:.4f}")
+    logger.info(f"Macro F1 Score:      {overall_macro_f1:.4f}")
+
     report["overall_accuracy"] = overall_accuracy
-    report["weighted_f1"] = overall_f1
+    report["weighted_f1"]      = overall_f1
+    report["macro_f1"]         = overall_macro_f1
 
     with open(config.CLASSIFICATION_REPORT_PATH, "w") as f:
         json.dump(report, f, indent=2, default=str)
-    logger.info(f"Classification report saved to {config.CLASSIFICATION_REPORT_PATH}")
+    logger.info(f"Classification report saved → {config.CLASSIFICATION_REPORT_PATH}")
+
+    # --- Compute per-class ROC-AUC for clean metrics JSON ---
+    roc_auc_per_class = {}
+    for i, class_name in enumerate(config.CLASS_NAMES):
+        if y_test[:, i].sum() > 0:
+            fpr, tpr, _ = roc_curve(y_test[:, i], y_pred_proba[:, i])
+            roc_auc_per_class[class_name] = float(auc(fpr, tpr))
+        else:
+            roc_auc_per_class[class_name] = None
+
+    # --- Per-class metrics JSON (clean schema for React dashboard) ---
+    _save_per_class_metrics(report, roc_auc_per_class, overall_accuracy,
+                            overall_f1, overall_macro_f1)
 
     # --- Confusion Matrix ---
     _plot_confusion_matrix(y_true, y_pred)
@@ -94,16 +124,57 @@ def evaluate_model(
     return report
 
 
-def _plot_confusion_matrix(y_true: np.ndarray, y_pred: np.ndarray) -> None:
-    """Generate and save confusion matrix heatmap."""
-    cm = confusion_matrix(y_true, y_pred)
+def _save_per_class_metrics(
+    report: dict,
+    roc_auc_per_class: dict,
+    overall_accuracy: float,
+    overall_f1: float,
+    overall_macro_f1: float,
+) -> None:
+    """
+    Save a clean per-class metrics JSON file for the React dashboard.
 
-    # Normalized confusion matrix
+    Schema:
+      {
+        "overall": {accuracy, weighted_f1, macro_f1},
+        "classes": [{name, precision, recall, f1, support, roc_auc}, ...]
+      }
+    """
+    classes = []
+    for cls_name in config.CLASS_NAMES:
+        cls_metrics = report.get(cls_name, {})
+        classes.append({
+            "name":      cls_name,
+            "precision": round(float(cls_metrics.get("precision", 0.0)), 4),
+            "recall":    round(float(cls_metrics.get("recall",    0.0)), 4),
+            "f1":        round(float(cls_metrics.get("f1-score",  0.0)), 4),
+            "support":   int(cls_metrics.get("support", 0)),
+            "roc_auc":   round(roc_auc_per_class.get(cls_name) or 0.0, 4),
+        })
+
+    payload = {
+        "overall": {
+            "accuracy":    round(overall_accuracy, 4),
+            "weighted_f1": round(overall_f1, 4),
+            "macro_f1":    round(overall_macro_f1, 4),
+        },
+        "classes": classes,
+        "class_names": config.CLASS_NAMES,
+        "dataset": getattr(config, "ACTIVE_DATASET", "nsl-kdd"),
+    }
+
+    with open(config.PER_CLASS_METRICS_PATH, "w") as f:
+        json.dump(payload, f, indent=2)
+    logger.info(f"Per-class metrics saved → {config.PER_CLASS_METRICS_PATH}")
+
+
+def _plot_confusion_matrix(y_true: np.ndarray, y_pred: np.ndarray) -> None:
+    """Generate and save confusion matrix heatmap (counts + normalized)."""
+    cm = confusion_matrix(y_true, y_pred)
     cm_normalized = cm.astype("float") / cm.sum(axis=1, keepdims=True)
 
     fig, axes = plt.subplots(1, 2, figsize=(16, 6))
 
-    # Raw counts
     sns.heatmap(
         cm, annot=True, fmt="d", cmap="Blues",
         xticklabels=config.CLASS_NAMES,
@@ -114,7 +185,6 @@ def _plot_confusion_matrix(y_true: np.ndarray, y_pred: np.ndarray) -> None:
     axes[0].set_xlabel("Predicted")
     axes[0].set_ylabel("Actual")
 
-    # Normalized
     sns.heatmap(
         cm_normalized, annot=True, fmt=".2f", cmap="Blues",
         xticklabels=config.CLASS_NAMES,
@@ -129,17 +199,14 @@ def _plot_confusion_matrix(y_true: np.ndarray, y_pred: np.ndarray) -> None:
     plt.savefig(config.CONFUSION_MATRIX_PATH, dpi=150, bbox_inches="tight")
     plt.close()
 
-    # Also save as JSON for dashboard
     cm_json_path = config.CONFUSION_MATRIX_PATH.replace(".png", ".json")
-    cm_data = {
-        "matrix": cm.tolist(),
-        "normalized_matrix": cm_normalized.tolist(),
-        "labels": config.CLASS_NAMES,
-    }
     with open(cm_json_path, "w") as f:
-        json.dump(cm_data, f, indent=2)
-
-    logger.info(f"Confusion matrix saved to {config.CONFUSION_MATRIX_PATH}")
+        json.dump({
+            "matrix":            cm.tolist(),
+            "normalized_matrix": cm_normalized.tolist(),
+            "labels":            config.CLASS_NAMES,
+        }, f, indent=2)
+    logger.info(f"Confusion matrix saved → {config.CONFUSION_MATRIX_PATH}")
 
 
 def _plot_roc_curves(
@@ -149,24 +216,18 @@ def _plot_roc_curves(
 ) -> None:
     """Generate and save one-vs-rest ROC curves for each class."""
     fig, ax = plt.subplots(figsize=(10, 8))
-
     roc_data = {}
 
     for i, class_name in enumerate(config.CLASS_NAMES):
-        # Check if this class exists in test data
         if y_test_one_hot[:, i].sum() == 0:
             logger.warning(f"No test samples for class '{class_name}', skipping ROC")
             continue
 
         fpr, tpr, _ = roc_curve(y_test_one_hot[:, i], y_pred_proba[:, i])
         roc_auc = auc(fpr, tpr)
-
         ax.plot(fpr, tpr, linewidth=2, label=f"{class_name} (AUC = {roc_auc:.3f})")
-
         roc_data[class_name] = {
-            "fpr": fpr.tolist(),
-            "tpr": tpr.tolist(),
-            "auc": float(roc_auc),
+            "fpr": fpr.tolist(), "tpr": tpr.tolist(), "auc": float(roc_auc),
         }
 
     ax.plot([0, 1], [0, 1], "k--", linewidth=1, label="Random Classifier")
@@ -180,22 +241,18 @@ def _plot_roc_curves(
     plt.savefig(config.ROC_CURVES_PATH, dpi=150, bbox_inches="tight")
     plt.close()
 
-    # Save ROC data as JSON for dashboard
     roc_json_path = config.ROC_CURVES_PATH.replace(".png", ".json")
     with open(roc_json_path, "w") as f:
         json.dump(roc_data, f, indent=2)
-
-    logger.info(f"ROC curves saved to {config.ROC_CURVES_PATH}")
+    logger.info(f"ROC curves saved → {config.ROC_CURVES_PATH}")
 
 
 def _plot_attack_distribution(y_true: np.ndarray, y_pred: np.ndarray) -> None:
     """Generate and save attack distribution comparison chart."""
     fig, axes = plt.subplots(1, 2, figsize=(14, 6))
 
-    # True distribution
     true_counts = np.bincount(y_true, minlength=config.NUM_CLASSES)
     pred_counts = np.bincount(y_pred, minlength=config.NUM_CLASSES)
-
     colors = ["#2ecc71", "#e74c3c", "#3498db", "#f39c12", "#9b59b6"]
 
     axes[0].bar(config.CLASS_NAMES, true_counts, color=colors)
@@ -214,14 +271,11 @@ def _plot_attack_distribution(y_true: np.ndarray, y_pred: np.ndarray) -> None:
     plt.savefig(config.ATTACK_DISTRIBUTION_PATH, dpi=150, bbox_inches="tight")
     plt.close()
 
-    # Save as JSON
     dist_json_path = config.ATTACK_DISTRIBUTION_PATH.replace(".png", ".json")
-    dist_data = {
-        "labels": config.CLASS_NAMES,
-        "actual_counts": true_counts.tolist(),
-        "predicted_counts": pred_counts.tolist(),
-    }
     with open(dist_json_path, "w") as f:
-        json.dump(dist_data, f, indent=2)
-
-    logger.info(f"Attack distribution saved to {config.ATTACK_DISTRIBUTION_PATH}")
+        json.dump({
+            "labels":          config.CLASS_NAMES,
+            "actual_counts":   true_counts.tolist(),
+            "predicted_counts": pred_counts.tolist(),
+        }, f, indent=2)
+    logger.info(f"Attack distribution saved → {config.ATTACK_DISTRIBUTION_PATH}")

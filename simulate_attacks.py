@@ -16,16 +16,20 @@ TEST_FILE = config.TEST_FILE
 
 
 def load_and_group_records():
-    """Load the KDDTest+.txt file and group connection records by attack category."""
+    """Load the UNSW-NB15 test CSV file and group connection records by attack category."""
     if not os.path.exists(TEST_FILE):
         print(f"Error: Test dataset not found at {TEST_FILE}.")
-        print("Starting local API server once will automatically download it.")
+        print("Please place UNSW_NB15_testing-set.csv in data/raw/")
         sys.exit(1)
 
-    print(f"Loading NSL-KDD test dataset from {TEST_FILE}...")
-    df = pd.read_csv(TEST_FILE, header=None, names=config.COLUMN_NAMES)
-    df["label"] = df["label"].astype(str).str.strip().str.rstrip(".")
-    df["attack_category"] = df["label"].apply(map_attack_label)
+    print(f"Loading UNSW-NB15 test dataset from {TEST_FILE}...")
+    df = pd.read_csv(TEST_FILE)
+    df.columns = df.columns.str.strip().str.lower()
+    
+    if "attack_cat" in df.columns:
+        df["attack_category"] = df["attack_cat"].apply(map_attack_label)
+    else:
+        df["attack_category"] = "Normal"
 
     # Group by attack category
     groups = {

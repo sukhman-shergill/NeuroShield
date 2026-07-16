@@ -1,0 +1,38 @@
+"""
+NeuroShield API - Docker Container
+"""
+FROM python:3.10-slim
+
+# Set working directory
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    g++ \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements first (layer caching)
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy project files
+COPY . .
+
+# Create necessary directories
+RUN mkdir -p data/raw data/processed models outputs logs notebooks
+
+# Environment configuration
+ENV NEUROSHIELD_DATASET=nsl-kdd
+ENV NEUROSHIELD_ORIGINS=http://localhost:3000,http://neuroshield-frontend:80
+ENV PYTHONUNBUFFERED=1
+
+# Expose Flask API port
+EXPOSE 5000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD python -c "import requests; requests.get('http://localhost:5000/health', timeout=5)"
+
+# Start the API server
+CMD ["python", "run_pipeline.py", "--mode", "api"]

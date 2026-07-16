@@ -2,10 +2,11 @@
 Main entry point for the Hybrid CNN-LSTM Network Traffic Intelligence Engine.
 
 Usage:
-    python run_pipeline.py --mode train      Train the model on the NSL-KDD dataset
-    python run_pipeline.py --mode evaluate   Evaluate saved model on test data
-    python run_pipeline.py --mode predict    Run inference using the trained model
-    python run_pipeline.py --mode api        Start the REST API server
+    python run_pipeline.py --mode train               Train the model on UNSW-NB15
+    python run_pipeline.py --mode train --dry-run     Validate pipeline without training
+    python run_pipeline.py --mode evaluate            Evaluate saved model
+    python run_pipeline.py --mode predict             Run inference demo
+    python run_pipeline.py --mode api                 Start REST API server
 """
 
 import argparse
@@ -21,10 +22,12 @@ from utils.logger import get_logger
 logger = get_logger(__name__)
 
 
-def run_training():
-    """Download data, preprocess, build sequences, compile and train the model."""
+def run_training(dry_run: bool = False) -> None:
+    """Load data, preprocess, build sequences, compile and train the model."""
     logger.info("=" * 70)
-    logger.info("  Mode: TRAINING (With Balanced Oversampling)")
+    logger.info(f"  Mode: TRAINING | Dataset: {config.ACTIVE_DATASET.upper()}")
+    if dry_run:
+        logger.info("  DRY RUN — pipeline validation only, no training will occur")
     logger.info("=" * 70)
 
     import tensorflow as tf
@@ -32,51 +35,90 @@ def run_training():
     from src.preprocessor import DataPreprocessor
     from src.sequence_builder import build_sequences
     from src.model import build_model, AttentionLayer
+    from src.losses import FocalLoss
+    from src.metrics import MacroF1Score
     from datetime import datetime
-    from sklearn.utils.class_weight import compute_class_weight
+    from sklearn.model_selection import train_test_split
 
-    # 1. Download and load train and test datasets
-    logger.info("Loading training and testing data...")
+    # 1. Load dataset
+    logger.info("Loading datasets...")
     train_df, test_df = load_train_test()
 
-    # 2. Preprocess data (Split train & val BEFORE oversampling to prevent leakage)
-    logger.info("Preprocessing datasets and applying oversampling...")
+    if dry_run:
+        logger.info(f"Dry run: train={len(train_df)}, test={len(test_df)} records loaded OK.")
+        logger.info("Dry run: preprocessing check...")
+
+    # 2. Preprocess — fit scaler on train set, transform train and test
+    logger.info("Preprocessing datasets (flat scaling)...")
     preprocessor = DataPreprocessor()
-    X_train, y_train, X_val, y_val, X_test, y_test = preprocessor.fit_transform(
-        train_df, test_df, val_size=config.VALIDATION_SPLIT
+    X_train_flat, y_train_flat, X_test_flat, y_test_flat = preprocessor.fit_transform(
+        train_df, test_df
     )
     preprocessor.save_transformers()
 
-    # 3. Build sequences for train, validation, and test splits
-    logger.info("Building sequences (sliding window)...")
-    X_train_seq, y_train_seq = build_sequences(X_train, y_train)
-    X_val_seq, y_val_seq = build_sequences(X_val, y_val)
+    if dry_run:
+        logger.info(
+            f"Dry run: preprocessed flat shapes → "
+            f"X_train={X_train_flat.shape}, X_test={X_test_flat.shape}"
+        )
+        logger.info("Dry run complete. Pipeline is valid. Run without --dry-run to train.")
+        return
 
-    shuffle_idx = np.random.RandomState(99).permutation(len(X_test))
-    X_test_shuffled = X_test[shuffle_idx]
-    y_test_shuffled = y_test[shuffle_idx]
-    X_test_seq, y_test_seq = build_sequences(X_test_shuffled, y_test_shuffled)
+    # 3. Build sequences chronologically (sliding window) to preserve local packet relations
+    logger.info("Building sliding-window sequences chronologically...")
+    X_train_seq_all, y_train_seq_all = build_sequences(X_train_flat, y_train_flat)
+    X_test_seq, y_test_seq           = build_sequences(X_test_flat, y_test_flat)
 
-    # 4. Build and compile model
+    # 4. Split sequences randomly (stratified) into train and validation splits
+    #    This prevents validation set homogeneity (unbalanced class distributions)
+    #    while keeping sequence context inside each window intact.
+    logger.info("Splitting sequences into stratified train and validation splits...")
+    y_train_idx = np.argmax(y_train_seq_all, axis=1)
+    X_train_seq, X_val_seq, y_train_seq, y_val_seq = train_test_split(
+        X_train_seq_all,
+        y_train_seq_all,
+        test_size=config.VALIDATION_SPLIT,
+        random_state=42,
+        stratify=y_train_idx,
+    )
+
+    logger.info(
+        f"Sequence splits ready → "
+        f"Train: {X_train_seq.shape}, Val: {X_val_seq.shape}, Test: {X_test_seq.shape}"
+    )
+
+    # 5. Compute square-root frequency class weights to balance Focal Loss alpha
+    unique_classes, counts = np.unique(y_train_flat, return_counts=True)
+    sqr_counts = np.sqrt(counts)
+    sum_sqr = np.sum(sqr_counts)
+    sqr_weights = (sum_sqr / (config.NUM_CLASSES * sqr_counts)).tolist()
+    logger.info(f"Computed square-root class weights: {dict(zip(config.CLASS_NAMES, sqr_weights))}")
+
+    # 6. Build and compile model
     input_shape = (X_train_seq.shape[1], X_train_seq.shape[2])
-    model = build_model(input_shape)
+    model = build_model(input_shape, class_weights=sqr_weights)
 
-    # Define callbacks (EarlyStopping, ReduceLROnPlateau, ModelCheckpoint)
+    # 7. Callbacks
+    #    EarlyStopping monitors val_macro_f1 (mode='max') instead of val_loss.
+    #    This ensures the best saved checkpoint maximises class-balanced detection.
     callbacks = [
         tf.keras.callbacks.EarlyStopping(
-            monitor="val_loss",
+            monitor="val_macro_f1",
+            mode="max",
             patience=config.EARLY_STOPPING_PATIENCE,
             restore_best_weights=True,
             verbose=1,
         ),
         tf.keras.callbacks.ModelCheckpoint(
             filepath=config.MODEL_SAVE_PATH,
-            monitor="val_loss",
+            monitor="val_macro_f1",
+            mode="max",
             save_best_only=True,
             verbose=1,
         ),
         tf.keras.callbacks.ReduceLROnPlateau(
-            monitor="val_loss",
+            monitor="val_macro_f1",
+            mode="max",
             factor=config.REDUCE_LR_FACTOR,
             patience=config.REDUCE_LR_PATIENCE,
             min_lr=1e-6,
@@ -84,19 +126,8 @@ def run_training():
         ),
     ]
 
-    # Compute class weights on resampled data (just in case there's still slight imbalance)
-    y_train_int = np.argmax(y_train_seq, axis=1)
-    unique_classes = np.unique(y_train_int)
-    weights = compute_class_weight(
-        class_weight="balanced",
-        classes=unique_classes,
-        y=y_train_int,
-    )
-    class_weights = {int(cls): float(w) for cls, w in zip(unique_classes, weights)}
-    logger.info(f"Class weights on resampled data: {class_weights}")
-
-    # 5. Train the model
-    logger.info("Training the model...")
+    # 8. Train
+    logger.info("Training model...")
     start_time = datetime.now()
     history = model.fit(
         X_train_seq,
@@ -104,33 +135,35 @@ def run_training():
         epochs=config.EPOCHS,
         batch_size=config.BATCH_SIZE,
         validation_data=(X_val_seq, y_val_seq),
-        class_weight=class_weights,
         callbacks=callbacks,
         verbose=1,
     )
     training_time = (datetime.now() - start_time).total_seconds()
-    logger.info(f"Training completed in {training_time:.1f} seconds")
+    logger.info(f"Training completed in {training_time:.1f}s")
 
-    # Save training history and model metadata
+    # 9. Save metadata
     with open(config.MODEL_METADATA_PATH, "w") as f:
         json.dump({
-            "model_name": "CNN_LSTM_Attention_IDS",
-            "trained_at": datetime.now().isoformat(),
+            "model_name":            "CNN_LSTM_Attention_IDS",
+            "trained_at":            datetime.now().isoformat(),
             "training_time_seconds": training_time,
-            "total_epochs_trained": len(history.history["loss"]),
-            "input_shape": list(input_shape),
-            "num_classes": config.NUM_CLASSES,
-            "class_names": config.CLASS_NAMES,
-            "sequence_length": config.SEQUENCE_LENGTH,
-            "dataset_used": "nsl-kdd"
+            "total_epochs_trained":  len(history.history["loss"]),
+            "input_shape":           list(input_shape),
+            "num_classes":           config.NUM_CLASSES,
+            "class_names":           config.CLASS_NAMES,
+            "sequence_length":       config.SEQUENCE_LENGTH,
+            "dataset_used":          config.ACTIVE_DATASET,
+            "loss_function":         "FocalLoss",
+            "focal_gamma":           config.FOCAL_LOSS_GAMMA,
+            "focal_alpha":           sqr_weights,
+            "early_stopping_monitor":"val_macro_f1",
         }, f, indent=2)
 
-    # Save history data
     history_data = {k: [float(v) for v in vals] for k, vals in history.history.items()}
     with open(config.TRAINING_HISTORY_PATH, "w") as f:
         json.dump(history_data, f)
 
-    # 6. Evaluate on independent test set
+    # 10. Evaluate
     logger.info("Evaluating on test set...")
     from src.evaluator import evaluate_model
     from utils.visualization import generate_all_visualizations
@@ -139,14 +172,15 @@ def run_training():
     generate_all_visualizations()
 
     logger.info("\nTraining and Evaluation Complete.")
-    logger.info(f"Overall Accuracy: {report.get('overall_accuracy', 0.0):.4f}")
-    logger.info(f"Weighted F1: {report.get('weighted_f1', 0.0):.4f}")
+    logger.info(f"Overall Accuracy:  {report.get('overall_accuracy', 0.0):.4f}")
+    logger.info(f"Weighted F1:       {report.get('weighted_f1', 0.0):.4f}")
+    logger.info(f"Macro F1:          {report.get('macro_f1', 0.0):.4f}")
 
 
-def run_evaluation():
+def run_evaluation() -> None:
     """Evaluate a saved model on the test dataset."""
     logger.info("=" * 70)
-    logger.info("  Mode: EVALUATION")
+    logger.info(f"  Mode: EVALUATION | Dataset: {config.ACTIVE_DATASET.upper()}")
     logger.info("=" * 70)
 
     import tensorflow as tf
@@ -155,23 +189,19 @@ def run_evaluation():
     from src.sequence_builder import build_sequences
     from src.evaluator import evaluate_model
     from src.model import AttentionLayer
+    from src.losses import FocalLoss
+    from src.metrics import MacroF1Score
     from utils.visualization import generate_all_visualizations
 
-    # Load test data (only need test dataset for evaluation)
     _, test_df = load_train_test()
 
-    # Load saved preprocessing transformers (scaler, label encoders)
     preprocessor = DataPreprocessor()
     preprocessor.load_transformers()
-
-    # Preprocess test data using the loaded transformers
     X_test, y_test = preprocessor.transform_df(test_df)
 
-    # Shuffle test data before building sequences
-    shuffle_idx = np.random.RandomState(99).permutation(len(X_test))
-    X_test_seq, y_test_seq = build_sequences(X_test[shuffle_idx], y_test[shuffle_idx])
+    # Build test sequences chronologically (no flat shuffling)
+    X_test_seq, y_test_seq = build_sequences(X_test, y_test)
 
-    # Build the model architecture natively to avoid cross-version Keras serialization errors
     from src.model import build_model
     with open(config.MODEL_METADATA_PATH, "r") as f:
         metadata = json.load(f)
@@ -182,11 +212,12 @@ def run_evaluation():
     report = evaluate_model(model, X_test_seq, y_test_seq)
     generate_all_visualizations()
 
-    logger.info(f"\nOverall Accuracy: {report.get('overall_accuracy', 'N/A'):.4f}")
-    logger.info(f"Weighted F1: {report.get('weighted_f1', 'N/A'):.4f}")
+    logger.info(f"\nOverall Accuracy:  {report.get('overall_accuracy', 'N/A'):.4f}")
+    logger.info(f"Weighted F1:       {report.get('weighted_f1', 'N/A'):.4f}")
+    logger.info(f"Macro F1:          {report.get('macro_f1', 'N/A'):.4f}")
 
 
-def run_prediction():
+def run_prediction() -> None:
     """Run inference on sample test records to demonstrate the predictor."""
     logger.info("=" * 70)
     logger.info("  Mode: PREDICTION")
@@ -195,48 +226,33 @@ def run_prediction():
     from src.data_loader import load_train_test
     from src.predictor import AttackPredictor
 
-    # Load the predictor
     predictor = AttackPredictor()
-
-    # Load test data for demonstration
     _, test_df = load_train_test()
 
-    # Pick a few sample records from each class
     logger.info("\nRunning predictions on sample records...\n")
 
     sample_records = []
     for category in config.CLASS_NAMES:
         subset = test_df[test_df["attack_category"] == category]
         if len(subset) > 0:
-            sample = subset.iloc[0]
-            sample_records.append(sample)
+            sample_records.append(subset.iloc[0])
 
-    # Warm up the predictor buffer with some initial records so the
-    # sliding window has real context instead of zero-padding
+    # Warm up the sliding window buffer with real context
     predictor.reset_buffer()
-    warmup_records = test_df.iloc[:config.SEQUENCE_LENGTH]
-    for _, row in warmup_records.iterrows():
-        record = row.to_dict()
-        pred_record = {
-            k: v for k, v in record.items()
-            if k not in ["label", "attack_category", "difficulty_level"]
-        }
-        predictor.predict_record(pred_record)
+    for _, row in test_df.iloc[: config.SEQUENCE_LENGTH].iterrows():
+        rec = {k: v for k, v in row.to_dict().items()
+               if k not in ["label", "attack_category", "difficulty_level"]}
+        predictor.predict_record(rec)
 
-    # Make predictions on samples from each class
     logger.info("Buffer warmed up. Running predictions on sample records...\n")
     for record_series in sample_records:
         record = record_series.to_dict()
         actual = record.get("attack_category", "Unknown")
-
-        # Remove non-feature fields before prediction
         pred_record = {
             k: v for k, v in record.items()
             if k not in ["label", "attack_category", "difficulty_level"]
         }
-
         result = predictor.predict_record(pred_record)
-
         logger.info(
             f"Actual: {actual:8s} | "
             f"Predicted: {result['predicted_class']:8s} | "
@@ -246,28 +262,35 @@ def run_prediction():
     logger.info("\nPrediction complete.")
 
 
-def run_api():
+def run_api() -> None:
     """Start the Flask REST API server."""
     from api.engine import start_api
     start_api()
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Hybrid CNN-LSTM Network Traffic Intelligence Engine"
+        description="Hybrid CNN-LSTM Network Traffic Intelligence Engine",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=__doc__,
     )
     parser.add_argument(
         "--mode",
         type=str,
         required=True,
         choices=["train", "evaluate", "predict", "api"],
-        help="Operation mode: train, evaluate, predict, or api",
+        help="Operation mode",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Validate the pipeline (data loading, preprocessing) without training",
     )
 
     args = parser.parse_args()
 
     if args.mode == "train":
-        run_training()
+        run_training(dry_run=args.dry_run)
     elif args.mode == "evaluate":
         run_evaluation()
     elif args.mode == "predict":

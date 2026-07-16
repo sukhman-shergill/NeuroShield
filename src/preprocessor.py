@@ -1,12 +1,10 @@
 """
-Data preprocessor for the NSL-KDD dataset.
+Data preprocessor optimized for the UNSW-NB15 dataset.
 
-Handles:
-- Drop constant noise features
-- Log transform skewed features (duration, src_bytes, dst_bytes)
-- Label encoding of categorical features (protocol_type, service, flag)
-- Standard scaling of numeric features
-- Saving/loading fitted transformers for inference
+Pipeline:
+  1. Log-transform skewed features (dur, sbytes, dbytes, rate, sload, dload, etc.)
+  2. Label-encode categorical features (proto, service, state)
+  3. Fit StandardScaler on training features, then scale both train and test.
 """
 
 import os
@@ -22,7 +20,9 @@ logger = get_logger(__name__)
 
 
 class DataPreprocessor:
-    """Preprocesses raw NSL-KDD DataFrames into model-ready numeric arrays."""
+    """
+    Preprocesses raw UNSW-NB15 DataFrames into model-ready arrays.
+    """
 
     def __init__(self):
         self.label_encoders: dict[str, LabelEncoder] = {}
@@ -31,71 +31,64 @@ class DataPreprocessor:
         self._is_fitted = False
 
     def fit_transform(
-        self, train_df: pd.DataFrame, test_df: pd.DataFrame, val_size: float = 0.15
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        self,
+        train_df: pd.DataFrame,
+        test_df: pd.DataFrame,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """
+        Fit the preprocessor on training data and transform train and test sets chronologically.
+        """
         train = train_df.copy()
-        test = test_df.copy()
+        test  = test_df.copy()
 
-        # Drop constant features
-        constant_cols = ["num_outbound_cmds"]
-        train = train.drop(columns=[c for c in constant_cols if c in train.columns], errors="ignore")
-        test = test.drop(columns=[c for c in constant_cols if c in test.columns], errors="ignore")
-
-        # Log transform skewed features
-        skewed_cols = ["duration", "src_bytes", "dst_bytes"]
-        for col in skewed_cols:
+        # 1. Log-transform skewed features
+        for col in config.SKEWED_COLS:
             if col in train.columns:
                 train[col] = np.log1p(train[col].values.astype(np.float32))
-                test[col] = np.log1p(test[col].values.astype(np.float32))
+                test[col]  = np.log1p(test[col].values.astype(np.float32))
 
-        # Encode categorical features
+        # 2. Encode categorical features
         for col in config.CATEGORICAL_FEATURES:
+            if col not in train.columns:
+                continue
             le = LabelEncoder()
-            all_values = pd.concat([train[col], test[col]]).unique()
+            all_values = pd.concat([train[col], test[col]]).astype(str).unique()
             le.fit(all_values)
-            train[col] = le.transform(train[col])
-            test[col] = le.transform(test[col])
+            train[col] = le.transform(train[col].astype(str))
+            test[col]  = le.transform(test[col].astype(str))
             self.label_encoders[col] = le
 
-        # Encode target labels
+        # 3. Encode target labels
         self.target_encoder.fit(config.CLASS_NAMES)
-        train_labels = train["attack_category"].values
-        test_labels = test["attack_category"].values
-        y_train = self.target_encoder.transform(train_labels)
-        y_test = self.target_encoder.transform(test_labels)
-
-        # Extract features
-        drop_cols = ["label", "attack_category"]
-        feature_cols = [c for c in train.columns if c not in drop_cols]
-        X_train = train[feature_cols].values.astype(np.float32)
-        X_test = test[feature_cols].values.astype(np.float32)
-
-        # Split train and validation splits to prevent validation leakage
-        from sklearn.model_selection import train_test_split
-        X_train_split, X_val_split, y_train_split, y_val_split = train_test_split(
-            X_train, y_train, test_size=val_size, random_state=42, stratify=y_train
+        y_train = self.target_encoder.transform(
+            train["attack_category"].values
+        )
+        y_test = self.target_encoder.transform(
+            test["attack_category"].values
         )
 
-        # Scale features (fit only on the training split)
-        self.scaler.fit(X_train_split)
-        X_train_split = self.scaler.transform(X_train_split)
-        X_val_split = self.scaler.transform(X_val_split)
-        X_test = self.scaler.transform(X_test)
+        # 4. Extract feature matrices
+        drop_cols  = ["label", "attack_category"]
+        feat_cols  = [c for c in train.columns if c not in drop_cols]
+        X_train = train[feat_cols].values.astype(np.float32)
+        X_test       = test[feat_cols].values.astype(np.float32)
 
-        # Apply RandomOverSampler to achieve full class balance
-        from imblearn.over_sampling import RandomOverSampler
-        
-        logger.info("Applying RandomOverSampler to balance all classes...")
-        ros = RandomOverSampler(random_state=42)
-        X_train_resampled, y_train_resampled = ros.fit_resample(X_train_split, y_train_split)
-        
-        # Shuffle training split
-        shuffle_idx = np.random.RandomState(42).permutation(len(X_train_resampled))
-        X_train_resampled = X_train_resampled[shuffle_idx]
-        y_train_resampled = y_train_resampled[shuffle_idx]
+        # 5. Fit scaler on training set ONLY (no leakage)
+        self.scaler.fit(X_train)
+        X_train = self.scaler.transform(X_train)
+        X_test  = self.scaler.transform(X_test)
 
         self._is_fitted = True
-        return X_train_resampled, y_train_resampled, X_val_split, y_val_split, X_test, y_test
+
+        from collections import Counter
+        train_dist = Counter(y_train)
+        logger.info("Training flat class distribution:")
+        for cls_idx, cls_name in enumerate(config.CLASS_NAMES):
+            count = train_dist.get(cls_idx, 0)
+            logger.info(f"  {cls_name:8s}: {count:6d} samples")
+
+        logger.info(f"Preprocessor fit complete → train: {X_train.shape}, test: {X_test.shape}")
+        return X_train, y_train, X_test, y_test
 
     def transform_single(self, record: dict) -> np.ndarray:
         """
@@ -104,36 +97,28 @@ class DataPreprocessor:
         if not self._is_fitted:
             raise RuntimeError("Preprocessor not fitted. Call load_transformers() first.")
 
-        # Build a single-row DataFrame
         df = pd.DataFrame([record])
 
-        # Drop constant features
-        constant_cols = ["num_outbound_cmds"]
-        df = df.drop(columns=[c for c in constant_cols if c in df.columns], errors="ignore")
+        # Drop constant / metadata columns
+        drop_meta = ["label", "attack_category", "source_ip", "dest_ip", "id", "attack_cat"]
+        df = df.drop(columns=[c for c in drop_meta if c in df.columns], errors="ignore")
 
-        # Log transform skewed features
-        skewed_cols = ["duration", "src_bytes", "dst_bytes"]
-        for col in skewed_cols:
+        # Log-transform skewed features
+        for col in config.SKEWED_COLS:
             if col in df.columns:
                 df[col] = np.log1p(df[col].values.astype(np.float32))
 
-        # Encode categorical features
+        # Encode categoricals
         for col in config.CATEGORICAL_FEATURES:
-            if col in df.columns:
+            if col in df.columns and col in self.label_encoders:
                 le = self.label_encoders[col]
-                known_classes = set(le.classes_)
-                df[col] = df[col].apply(
-                    lambda x: le.transform([x])[0] if x in known_classes else -1
+                known = set(le.classes_)
+                df[col] = df[col].astype(str).apply(
+                    lambda x: le.transform([x])[0] if x in known else -1
                 )
 
-        # Drop non-feature columns if present
-        drop_cols = ["label", "attack_category", "difficulty_level", "source_ip", "dest_ip"]
-        feature_cols = [c for c in df.columns if c not in drop_cols]
-        features = df[feature_cols].values.astype(np.float32)
-
-        # Scale
-        features = self.scaler.transform(features)
-        return features[0]
+        features = df.values.astype(np.float32)
+        return self.scaler.transform(features)[0]
 
     def transform_df(self, df: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
         """
@@ -142,58 +127,67 @@ class DataPreprocessor:
         if not self._is_fitted:
             raise RuntimeError("Preprocessor not loaded. Call load_transformers() first.")
 
-        temp_df = df.copy()
+        temp = df.copy()
 
-        # Drop constant features
-        constant_cols = ["num_outbound_cmds"]
-        temp_df = temp_df.drop(columns=[c for c in constant_cols if c in temp_df.columns], errors="ignore")
+        drop_meta = ["id", "attack_cat"]
+        temp = temp.drop(columns=[c for c in drop_meta if c in temp.columns], errors="ignore")
 
-        # Log transform skewed features
-        skewed_cols = ["duration", "src_bytes", "dst_bytes"]
-        for col in skewed_cols:
-            if col in temp_df.columns:
-                temp_df[col] = np.log1p(temp_df[col].values.astype(np.float32))
+        # Log-transform skewed features
+        for col in config.SKEWED_COLS:
+            if col in temp.columns:
+                temp[col] = np.log1p(temp[col].values.astype(np.float32))
 
-        # Encode categorical features
+        # Encode categoricals
         for col in config.CATEGORICAL_FEATURES:
-            if col in temp_df.columns:
+            if col in temp.columns and col in self.label_encoders:
                 le = self.label_encoders[col]
-                known_classes = set(le.classes_)
-                temp_df[col] = temp_df[col].apply(
-                    lambda x: le.transform([x])[0] if x in known_classes else -1
+                known = set(le.classes_)
+                temp[col] = temp[col].astype(str).apply(
+                    lambda x: le.transform([x])[0] if x in known else -1
                 )
 
-        # Encode targets
-        y = np.zeros(len(temp_df), dtype=np.int32)
-        if "attack_category" in temp_df.columns:
-            y = self.target_encoder.transform(temp_df["attack_category"].values)
+        # Encode target labels
+        y = np.zeros(len(temp), dtype=np.int32)
+        if "attack_category" in temp.columns:
+            y = self.target_encoder.transform(temp["attack_category"].values)
 
         # Extract features and scale
-        drop_cols = ["label", "attack_category", "difficulty_level", "source_ip", "dest_ip"]
-        feature_cols = [c for c in temp_df.columns if c not in drop_cols]
-        X = temp_df[feature_cols].values.astype(np.float32)
+        drop_cols  = ["label", "attack_category", "source_ip", "dest_ip"]
+        feat_cols  = [c for c in temp.columns if c not in drop_cols]
+        X = temp[feat_cols].values.astype(np.float32)
         X = self.scaler.transform(X)
 
         return X, y
 
     def save_transformers(self) -> None:
+        """Persist scaler and encoders to disk."""
         if not self._is_fitted:
             raise RuntimeError("Nothing to save. Preprocessor not fitted yet.")
         joblib.dump(self.scaler, config.SCALER_SAVE_PATH)
-        encoders_data = {
-            "label_encoders": self.label_encoders,
-            "target_encoder": self.target_encoder,
-        }
-        joblib.dump(encoders_data, config.LABEL_ENCODERS_SAVE_PATH)
+        joblib.dump(
+            {
+                "label_encoders":  self.label_encoders,
+                "target_encoder":  self.target_encoder,
+                "dataset":         "unsw-nb15",
+                "categorical_features": config.CATEGORICAL_FEATURES,
+                "skewed_cols":     config.SKEWED_COLS,
+                "constant_cols":   [],
+            },
+            config.LABEL_ENCODERS_SAVE_PATH,
+        )
+        logger.info("Preprocessor transformers saved successfully.")
 
     def load_transformers(self) -> None:
+        """Restore scaler and encoders from disk."""
         if not os.path.exists(config.SCALER_SAVE_PATH):
             raise FileNotFoundError(f"Scaler not found at {config.SCALER_SAVE_PATH}")
         if not os.path.exists(config.LABEL_ENCODERS_SAVE_PATH):
             raise FileNotFoundError(f"Encoders not found at {config.LABEL_ENCODERS_SAVE_PATH}")
 
         self.scaler = joblib.load(config.SCALER_SAVE_PATH)
-        encoders_data = joblib.load(config.LABEL_ENCODERS_SAVE_PATH)
-        self.label_encoders = encoders_data["label_encoders"]
-        self.target_encoder = encoders_data["target_encoder"]
+        data = joblib.load(config.LABEL_ENCODERS_SAVE_PATH)
+
+        self.label_encoders  = data["label_encoders"]
+        self.target_encoder  = data["target_encoder"]
         self._is_fitted = True
+        logger.info("Preprocessor transformers loaded successfully.")

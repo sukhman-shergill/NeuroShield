@@ -54,3 +54,24 @@ desktop.ini
 .env
 .env.*
 !.env.example
+
+# ──────────────────────────────────────────────
+# Docker
+# ──────────────────────────────────────────────
+.dockerignore
+docker-compose.override.yml
+
+# ──────────────────────────────────────────────
+# Trained model artifacts (tracked via Git LFS or GitHub Releases)
+# Uncomment below to commit small models directly:
+# !models/*.keras
+# !models/*.joblib
+# !models/*.json
+# ──────────────────────────────────────────────
+models/*.keras
+models/*.joblib
+
+# ──────────────────────────────────────────────
+# UNSW-NB15 dataset files (large CSVs — do not commit)
+# ──────────────────────────────────────────────
+data/raw/UNSW_NB15_*.csv

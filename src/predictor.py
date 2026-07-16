@@ -81,7 +81,7 @@ class AttackPredictor:
         zero-padding is used to complete the sequence.
 
         Args:
-            record: Dictionary with NSL-KDD feature names as keys.
+            record: Dictionary with UNSW-NB15 feature names as keys.
 
         Returns:
             Dictionary with:
@@ -146,7 +146,7 @@ class AttackPredictor:
         Classify records from a pandas DataFrame.
 
         Args:
-            df: DataFrame with NSL-KDD feature columns.
+            df: DataFrame with UNSW-NB15 feature columns.
 
         Returns:
             Original DataFrame with added columns:

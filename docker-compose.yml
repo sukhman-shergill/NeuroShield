@@ -1,0 +1,66 @@
+version: "3.9"
+
+services:
+  # -------------------------------------------------------------------------
+  # Flask API + Model Inference Server
+  # -------------------------------------------------------------------------
+  neuroshield-api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: neuroshield-api
+    ports:
+      - "5000:5000"
+    volumes:
+      # Persist trained model weights and evaluation artifacts
+      - ./models:/app/models
+      - ./data:/app/data
+      - ./outputs:/app/outputs
+      - ./logs:/app/logs
+    environment:
+      # Dataset: nsl-kdd (default, auto-downloads) or unsw-nb15 (manual CSV)
+      - NEUROSHIELD_DATASET=nsl-kdd
+      # CORS: restrict to the frontend container only in production
+      - NEUROSHIELD_ORIGINS=http://localhost:3000,http://neuroshield-frontend:80
+      - PYTHONUNBUFFERED=1
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import requests; requests.get('http://localhost:5000/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+
+  # -------------------------------------------------------------------------
+  # React SOC Dashboard (nginx + Vite build)
+  # -------------------------------------------------------------------------
+  neuroshield-frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: neuroshield-frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      neuroshield-api:
+        condition: service_healthy
+    restart: unless-stopped
+
+# ---------------------------------------------------------------------------
+# Usage:
+#   docker compose up --build          # Build and start both services
+#   docker compose up -d               # Run in detached mode
+#   docker compose logs -f             # Follow logs
+#   docker compose down                # Stop and remove containers
+#
+# After containers start:
+#   SOC Dashboard → http://localhost:3000
+#   Flask API     → http://localhost:5000
+#   Health check  → http://localhost:5000/health
+#
+# To use UNSW-NB15 dataset:
+#   1. Place CSV files in data/raw/ (see RESEARCH_NOTES.md)
+#   2. Change NEUROSHIELD_DATASET=unsw-nb15 above
+#   3. Run: docker compose up --build
+# ---------------------------------------------------------------------------

@@ -29,12 +29,12 @@ export default function Sidebar({ activeTab, setActiveTab, threatCount }: Sideba
   ];
 
   return (
-    <aside id="sidebar-nav" className="w-64 bg-[#0e1017] border-r border-[#1e2230] flex flex-col h-screen shrink-0 font-sans">
+    <aside id="sidebar-nav" className="w-64 bg-[#0e1017]/70 backdrop-blur-xl border-r border-[#1e2230] flex flex-col h-screen shrink-0 font-sans z-10">
       {/* Brand Logo Header */}
       <div className="p-6 border-b border-[#1e2230] flex items-center gap-3">
         <span className="material-symbols-outlined text-indigo-400 text-3xl fill-icon animate-pulse" id="brand-logo-icon">shield</span>
         <div>
-          <h1 className="text-sm font-extrabold tracking-wider text-slate-100 uppercase" id="brand-name">NeuroShield</h1>
+          <h1 className="text-sm font-extrabold tracking-wider uppercase text-gradient-primary" id="brand-name">NeuroShield</h1>
           <p className="text-[10px] text-slate-500 font-mono tracking-widest uppercase">Intrusion Detection System</p>
         </div>
       </div>

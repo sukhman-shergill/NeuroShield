@@ -37,16 +37,17 @@ graph TD
 
 ```
 Input:      (10, 42)           ← 10-record window × 42 features
-Conv1D(64, k=3) → BN → ReLU → SpatialDropout1D(0.2)   → (10, 64)
-Conv1D(128, k=3) → BN → ReLU → MaxPool1D(2)            → (5, 128)
+Conv1D(128, k=3) → BN → ReLU → SpatialDropout1D(0.2)  → (10, 128)
+Conv1D(256, k=3) → BN → ReLU → MaxPool1D(2)           → (5, 256)
 → SpatialDropout1D(0.2)
-BiLSTM(128) → Dropout(0.2)                              → (5, 256)
-AttentionLayer (Bahdanau-style)                         → (256,)
-Dense(128, relu) → Dropout(0.2)                         → (128,)
-Dense(5, softmax)                                       → (5,)
+BiLSTM(256) → Dropout(0.15)                           → (5, 512)
+AttentionLayer (Bahdanau-style)                       → (512,)
+Dense(256, relu) → Dropout(0.15)                      → (256,)
+Dense(128, relu) → Dropout(0.15)                      → (128,)
+Dense(5, softmax)                                     → (5,)
 
-Total Parameters: ~1.2M
-Loss:   FocalLoss(γ=2.0, α=sqrt_class_weights, ε=0.05)  ← class imbalance + label smoothing
+Total Parameters: ~2.8M
+Loss:   FocalLoss(γ=1.5, α=cuberoot_class_weights, ε=0.05) ← boosts majority accuracy
 Metric: MacroF1Score (EarlyStopping monitor)
 ```
 

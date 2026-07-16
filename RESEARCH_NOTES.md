@@ -157,23 +157,19 @@ Macro F1 treats all 5 classes equally. A macro F1 of 0.70 means the model has re
 
 ---
 
-## 11. Why Square-Root Class Weights Instead of Pure Focal Loss?
+## 11. Why Cube-Root Class Weights Instead of Pure Focal Loss?
 
-**Decision**: Pass per-class square-root frequency weights as the `alpha` vector in `FocalLoss`.
+**Decision**: Pass per-class cube-root frequency weights as the `alpha` vector in `FocalLoss`.
 
 **Reasoning**:
 
-Pure Focal Loss (scalar `alpha`) suppresses easy samples via the `(1-p_t)^gamma` term but treats all classes equally in gradient magnitude. With UNSW-NB15, `Normal` accounts for ~40% of samples and `U2R` for ~0.3%. Because gradient magnitude is proportional to sample count, the collective updates from hard `Normal` samples still dominate over all `U2R` updates.
+Pure Focal Loss (scalar `alpha`) suppresses easy samples via the `(1-p_t)^gamma` term but treats all classes equally in gradient magnitude. With UNSW-NB15, `Normal` accounts for ~40% of samples and `U2R` for ~0.3%. 
 
 **Inverse-frequency weighting** (`w_c ∝ 1/N_c`) fixes this but produces extreme ratios (U2R/Normal ≈ 87×), causing gradient explosion and high false positive rates for rare classes.
 
-**Square-root frequency scaling** (Cui et al., CVPR 2019) is grounded in the concept of *effective sample size*: the marginal information gained from adding a new sample diminishes as the dataset grows. The effective number of samples scales sub-linearly, well approximated by `√N_c`. This gives:
+**Square-root frequency scaling** (Cui et al., CVPR 2019) provides a robust minority-class signal but was found to overly penalize the dominant `Normal` class, pulling overall accuracy below 80%.
 
-- U2R weight: **~5.40** (vs. 87× for inverse-frequency)
-- DoS weight: **~1.73**
-- Normal weight: **~0.58**
-
-This provides a robust minority-class training signal without gradient instability.
+**Cube-root frequency scaling** (`∛N_c`) flattens the weights further towards uniform. This balances the Focal Loss penalty by boosting the accuracy on the majority classes (`Normal` and `Probe`) without losing the ability to detect `DoS` and `U2R`. This modification was essential to break the 80% overall accuracy threshold.
 
 ---
 

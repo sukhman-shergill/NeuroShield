@@ -165,7 +165,14 @@ def build_model(input_shape: tuple, num_classes: int = None, class_weights: list
         config.DENSE_UNITS, activation="relu",
         kernel_regularizer=l2_reg, name="dense_1",
     )(context)
-    x = layers.Dropout(config.DROPOUT_RATE, name="dropout_dense")(x)
+    x = layers.Dropout(config.DROPOUT_RATE, name="dropout_dense_1")(x)
+    
+    x = layers.Dense(
+        128, activation="relu",
+        kernel_regularizer=l2_reg, name="dense_2",
+    )(x)
+    x = layers.Dropout(config.DROPOUT_RATE, name="dropout_dense_2")(x)
+    
     outputs = layers.Dense(num_classes, activation="softmax", name="output")(x)
 
     model = Model(inputs=inputs, outputs=outputs, name="CNN_LSTM_Attention_IDS")

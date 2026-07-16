@@ -1,16 +1,16 @@
 {
   "model_name": "CNN_LSTM_Attention_IDS",
-  "trained_at": "2026-07-15T14:31:50.404696",
-  "training_time_seconds": 196.120073,
-  "total_epochs_trained": 30,
+  "trained_at": "2026-07-16T15:30:27.904109",
+  "training_time_seconds": 254.943995,
+  "total_epochs_trained": 34,
   "input_shape": [
     10,
     42
   ],
   "num_classes": 5,
   "class_names": [
-    "Normal",
     "DoS",
+    "Normal",
     "Probe",
     "R2L",
     "U2R"
@@ -18,7 +18,16 @@
   "sequence_length": 10,
   "dataset_used": "unsw-nb15",
   "loss_function": "FocalLoss",
-  "focal_gamma": 2.0,
-  "focal_alpha": 0.25,
+  "focal_gamma": 1.5,
+  "focal_alpha": [
+    1.3793609580119388,
+    0.6619365948919264,
+    0.7170610365243442,
+    0.9711870182156795,
+    2.9406690401026117
+  ],
+  "label_smoothing": 0.05,
+  "batch_size": 256,
+  "learning_rate": 0.001,
   "early_stopping_monitor": "val_macro_f1"
 }

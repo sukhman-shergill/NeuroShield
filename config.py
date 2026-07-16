@@ -98,19 +98,19 @@ SEQUENCE_LENGTH = 10  # Number of consecutive records per sequence
 # Model hyperparameters
 # ---------------------------------------------------------------------------
 # CNN layers
-CNN_FILTERS_1    = 64
+CNN_FILTERS_1    = 128
 CNN_KERNEL_SIZE_1 = 3
-CNN_FILTERS_2    = 128
+CNN_FILTERS_2    = 256
 CNN_KERNEL_SIZE_2 = 3
 POOL_SIZE        = 2
 
 # LSTM layers
-LSTM_UNITS_1 = 128   # Bidirectional LSTM
+LSTM_UNITS_1 = 256   # Bidirectional LSTM
 LSTM_UNITS_2 = 64    # Second LSTM (unused in current architecture — reserved)
 
 # Dense layers
-DENSE_UNITS      = 128
-DROPOUT_RATE     = 0.2
+DENSE_UNITS      = 256
+DROPOUT_RATE     = 0.15
 L2_REGULARIZATION = 1e-5
 
 # ---------------------------------------------------------------------------
@@ -119,7 +119,7 @@ L2_REGULARIZATION = 1e-5
 # gamma=2.0: standard value from Lin et al. RetinaNet paper
 # alpha=1.0: placeholder — overridden at runtime by square-root class weights
 # label_smoothing=0.05: soft targets, prevents overconfident majority-class predictions
-FOCAL_LOSS_GAMMA    = 2.0
+FOCAL_LOSS_GAMMA    = 1.5
 FOCAL_LOSS_ALPHA    = 1.0
 LABEL_SMOOTHING     = 0.05
 

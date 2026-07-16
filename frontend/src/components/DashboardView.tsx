@@ -185,9 +185,9 @@ export default function DashboardView({ alerts, onIsolateHost, onReviewHost }: D
       {/* Upper Status Bar & Section Header */}
       <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
         <div>
-          <h2 className="text-xl font-bold text-slate-100 tracking-tight flex items-center gap-2">
+          <h2 className="text-2xl font-bold tracking-tight flex items-center gap-2">
             <span className="material-symbols-outlined text-indigo-400 fill-icon">dashboard</span>
-            NeuroShield Dashboard
+            <span className="text-gradient-secondary">NeuroShield Dashboard</span>
           </h2>
           <p className="text-xs text-slate-400 mt-1">Real-time status updates from the IDS model</p>
         </div>

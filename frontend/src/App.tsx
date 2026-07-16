@@ -84,7 +84,12 @@ export default function App() {
   const activeThreatsCount = alerts.filter(a => !a.actionTaken).length;
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-[#0c0e16] text-[#e1e2ed] font-sans selection:bg-indigo-500/30 selection:text-indigo-200">
+    <div className="flex h-screen w-screen overflow-hidden bg-[#0c0e16] text-[#e1e2ed] font-sans selection:bg-indigo-500/30 selection:text-indigo-200 relative">
+      {/* Animated Background Blobs */}
+      <div className="absolute top-0 -left-4 w-72 h-72 bg-indigo-500 rounded-full mix-blend-multiply filter blur-[128px] opacity-20 animate-blob pointer-events-none"></div>
+      <div className="absolute top-0 -right-4 w-72 h-72 bg-purple-500 rounded-full mix-blend-multiply filter blur-[128px] opacity-20 animate-blob animation-delay-2000 pointer-events-none"></div>
+      <div className="absolute -bottom-8 left-20 w-72 h-72 bg-emerald-500 rounded-full mix-blend-multiply filter blur-[128px] opacity-20 animate-blob animation-delay-4000 pointer-events-none"></div>
+
       {/* Sidebar navigation */}
       <Sidebar 
         activeTab={activeTab} 
@@ -93,7 +98,7 @@ export default function App() {
       />
 
       {/* Main content frame */}
-      <main className="flex-1 overflow-y-auto p-6 md:p-8 bg-gradient-to-br from-[#0c0e16] via-[#0f111a] to-[#121422]">
+      <main className="flex-1 overflow-y-auto p-6 md:p-8 bg-transparent z-10 relative">
         <div className="max-w-7xl mx-auto w-full">
           {activeTab === 'dashboard' && (
             <DashboardView 

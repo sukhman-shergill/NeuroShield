@@ -70,9 +70,11 @@ ATTACK_MAPPING = {
     "Analysis":      "Probe",    # Port/content analysis
     "Generic":       "Probe",    # Generic attack attempts
     "Exploits":      "R2L",      # Exploitation of remote vulnerabilities
-    "Backdoors":     "R2L",      # Remote access backdoors
+    "Backdoor":      "R2L",      # Remote access backdoor (singular)
+    "Backdoors":     "R2L",      # Remote access backdoors (plural)
     "Shellcode":     "U2R",      # Shellcode = privilege escalation
-    "Worms":         "U2R",      # Worm propagation (self-replicating, local)
+    "Worm":          "U2R",      # Worm propagation (singular)
+    "Worms":         "U2R",      # Worm propagation (plural)
 }
 
 # UNSW-NB15 skewed features to log-transform

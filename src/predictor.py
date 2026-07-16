@@ -106,7 +106,10 @@ class AttackPredictor:
         # Predict
         probabilities = self.model.predict(sequence, verbose=0)[0]
         predicted_class_idx = int(np.argmax(probabilities))
-        predicted_class = config.CLASS_NAMES[predicted_class_idx]
+        
+        # Dynamically map indices using the loaded target encoder classes to prevent label swapping
+        class_labels = self.preprocessor.target_encoder.classes_
+        predicted_class = class_labels[predicted_class_idx]
         confidence = float(probabilities[predicted_class_idx])
 
         result = {
@@ -114,7 +117,7 @@ class AttackPredictor:
             "confidence": confidence,
             "all_probabilities": {
                 name: float(prob)
-                for name, prob in zip(config.CLASS_NAMES, probabilities)
+                for name, prob in zip(class_labels, probabilities)
             },
         }
 
@@ -170,7 +173,8 @@ class AttackPredictor:
         result_df["predicted_class"] = [p["predicted_class"] for p in predictions]
         result_df["confidence"] = [p["confidence"] for p in predictions]
 
-        for class_name in config.CLASS_NAMES:
+        class_labels = self.preprocessor.target_encoder.classes_
+        for class_name in class_labels:
             result_df[f"prob_{class_name}"] = [
                 p["all_probabilities"][class_name] for p in predictions
             ]

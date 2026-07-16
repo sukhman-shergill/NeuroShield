@@ -661,7 +661,7 @@ def start_simulation():
 
         logger.info(f"Triggering background attack simulation loop. Type: {attack_type}")
         simulation_process = subprocess.Popen(
-            [python_exe, script_path, "--attack", attack_type, "--duration", "600"],
+            [python_exe, "-u", script_path, "--attack", attack_type, "--duration", "600"],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True

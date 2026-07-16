@@ -2,7 +2,7 @@
 Source package for the Hybrid CNN-LSTM Network Traffic Intelligence Engine.
 
 Modules:
-    data_loader    - NSL-KDD and UNSW-NB15 dataset loaders
+    data_loader    - UNSW-NB15 dataset loader
     preprocessor   - Feature engineering pipeline (no oversampling)
     sequence_builder - Sliding window sequence construction
     model          - CNN-LSTM-Attention architecture

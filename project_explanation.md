@@ -1,6 +1,6 @@
 # NeuroShield NIDS — Project Architecture & Explanation Guide
 
-This guide provides a comprehensive explanation of **NeuroShield**, a real-time Network Intrusion Detection System (NIDS) powered by a hybrid **CNN-LSTM-Attention** deep learning engine.
+This guide provides a comprehensive explanation of **NeuroShield**, a real-time Network Intrusion Detection System (NIDS) powered by a hybrid **CNN-BiLSTM-Attention** deep learning engine.
 
 ---
 
@@ -8,26 +8,29 @@ This guide provides a comprehensive explanation of **NeuroShield**, a real-time 
 
 The core goal of **NeuroShield** is to inspect inbound network connection records, classify traffic categories in real-time, detect potential security breaches, and enable rapid mitigation (like host isolation) via a Security Operations Center (SOC) dashboard.
 
-### Traffic Classification Categories
-NeuroShield maps network traffic into **5 categories** derived from the NSL-KDD benchmark dataset:
+### Dataset Support: UNSW-NB15
+NeuroShield is optimized for the **UNSW-NB15** dataset, a modern, realistic network traffic dataset captured from actual network traffic at UNSW Canberra, replacing legacy, simulated datasets.
 
-| Category | Description | Examples | Severity |
-|----------|-------------|----------|----------|
-| **Normal** | Safe, standard connection profiles | http requests, safe file transfers | Benign |
-| **DoS** | Denial of Service vectors aimed at resource exhaustion | Neptune, Smurf, Back, Teardrop | Critical |
-| **Probe** | Scanner attempts to discover network structure | Nmap scan, Satan port scans | High |
-| **R2L** | Remote-to-Local unauthorized system access attempts | Guess_passwd, FTP_write, Warez | High |
-| **U2R** | User-to-Root local privilege escalation attempts | Buffer overflows, Rootkit execution | Critical |
+### Traffic Classification Categories
+NeuroShield maps the 9 attack types of UNSW-NB15 into a consolidated **5-class schema** to ensure class-balanced training and sequence-model compatibility:
+
+| Category | Description | UNSW-NB15 Attack Types Mapped | Severity |
+|----------|-------------|-------------------------------|----------|
+| **Normal** | Safe, standard connection profiles | Normal | Benign |
+| **DoS** | Denial of Service vectors aiming at resource exhaustion | DoS | Critical |
+| **Probe** | Scanner attempts to discover network structure | Fuzzers, Reconnaissance, Analysis, Generic | High |
+| **R2L** | Remote-to-Local unauthorized system access attempts | Exploits, Backdoors | High |
+| **U2R** | User-to-Root local privilege escalation attempts | Shellcode, Worms | Critical |
 
 ---
 
 ## 2. Machine Learning Architecture
 
-The brain of the NIDS is a hybrid model designed in [src/model.py](src/model.py). It merges spatial feature extraction with temporal sequence processing and attention mechanism focusing.
+The brain of the NIDS is a hybrid model designed in [src/model.py](src/model.py). It merges spatial feature extraction with temporal sequence processing and an attention mechanism focusing.
 
 ```
                   ┌──────────────────────────────┐
-                  │ Input Sequence (10 × 40)     │
+                  │ Input Sequence (10 × 42)     │
                   └──────────────┬───────────────┘
                                  ▼
                   ┌──────────────────────────────┐
@@ -37,7 +40,7 @@ The brain of the NIDS is a hybrid model designed in [src/model.py](src/model.py)
                                  ▼
                   ┌──────────────────────────────┐
                   │  LSTM temporal patterns      │
-                  │  (BiLSTM & Standard LSTM)    │
+                  │  (Bidirectional LSTM)        │
                   └──────────────┬───────────────┘
                                  ▼
                   ┌──────────────────────────────┐
@@ -53,7 +56,7 @@ The brain of the NIDS is a hybrid model designed in [src/model.py](src/model.py)
 
 ### Layer-by-Layer Walkthrough
 1. **CNN Block (Spatial Feature Extraction)**:
-   - Network connection records contain multi-dimensional metrics (e.g., source bytes, error rates, host connection counts).
+   - Network connection records contain multi-dimensional metrics (e.g., source/destination bytes, packet counts, protocols).
    - A sequence of **Conv1D** layers with Batch Normalization and Spatial Dropout extracts localized feature patterns and correlation coefficients between individual statistics.
 2. **LSTM Block (Temporal Sequence Learning)**:
    - Many sophisticated attacks (like slow port scans or brute-force logins) occur over time rather than in a single connection.
@@ -70,10 +73,9 @@ The brain of the NIDS is a hybrid model designed in [src/model.py](src/model.py)
 Raw data files in [data/raw/](data/raw/) must be converted into standardized floating-point tensors before passing to the model.
 
 ### Preprocessing Steps ([src/preprocessor.py](src/preprocessor.py))
-- **Constant Removal**: Columns like `num_outbound_cmds` (which have zero variance) are dropped.
-- **Log Transform**: Skewed quantitative columns (`duration`, `src_bytes`, `dst_bytes`) undergo an `np.log1p` transformation to reduce outlier variance.
-- **Categorical Encoding**: `protocol_type`, `service`, and `flag` are mapped to numbers using `LabelEncoder`.
-- **Scaling**: A fitted `StandardScaler` standardizes numeric columns to zero mean and unit variance.
+- **Log Transform**: Highly skewed quantitative columns (`dur`, `sbytes`, `dbytes`, `rate`, `sload`, `dload`, `smean`, `dmean`, `response_body_len`) undergo an `np.log1p` transformation to reduce outlier variance and prevent gradient saturation.
+- **Categorical Encoding**: `proto`, `service`, and `state` are mapped to numbers using `LabelEncoder`.
+- **Scaling**: A fitted `StandardScaler` standardizes numeric columns to zero mean and unit variance, fitted **only** on the training split to prevent data leakage.
 
 ### Sequence Builder ([src/sequence_builder.py](src/sequence_builder.py))
 - The model expects inputs of shape `(batch_size, sequence_length, features)` where `sequence_length = 10`.
@@ -114,12 +116,12 @@ The frontend is a React + TypeScript single-page application built on top of Vit
 
 ## 6. End-to-End Testing Loop ([simulate_attacks.py](simulate_attacks.py))
 
-To inspect the system in action, `simulate_attacks.py` loads the KDD test partition, serializes numeric/numpy features correctly, assigns source/destination IPs (anomalous external IPs for attack classes, internal range IPs for normal traffic), and posts requests to the API.
+To inspect the system in action, `simulate_attacks.py` loads the UNSW-NB15 test partition, serializes numeric/numpy features correctly, assigns source/destination IPs (anomalous external IPs for attack classes, internal range IPs for normal traffic), and posts requests to the API.
 
 This triggers the following pipeline:
 ```
 [Simulator] ──(JSON payload)──► [Flask Engine] ──► [Preprocessor]
                                      │                  │
                                      ▼                  ▼
-[Dashboard] ◄──(GET /api/stats)── [SOC Queue] ◄── [CNN-LSTM Engine]
+[Dashboard] ◄──(GET /api/stats)── [SOC Queue] ◄── [CNN-BiLSTM Engine]
 ```

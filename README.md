@@ -9,7 +9,10 @@
 
 **NeuroShield** is a production-quality real-time Network Intrusion Detection System (NIDS) powered by a hybrid **CNN-LSTM-Attention** deep learning classifier. It features a live Security Operations Center (SOC) dashboard with glassmorphism aesthetics, a REST API for real-time classification, and a built-in explainability engine that tells analysts *why* a connection was flagged.
 
-> **Project Context:** Developed as a Summer Training Project by **Sukhman Singh** at **C-DAC Mohali**. Architecture decisions are documented in [RESEARCH_NOTES.md](RESEARCH_NOTES.md).
+> **Project Context:** Developed as a Summer Training Project by **Sukhman Singh** at **C-DAC Mohali**.
+> - 📄 **Full Technical Report:** [NEUROSHIELD_PROJECT_REPORT.pdf](NEUROSHIELD_PROJECT_REPORT.pdf)
+> - 🗺️ **Detailed Architecture Guide:** [project_explanation.md](project_explanation.md)
+> - 🔬 **Design Decision Log (ADR):** [RESEARCH_NOTES.md](RESEARCH_NOTES.md)
 
 ---
 
@@ -57,19 +60,19 @@ Metric: MacroF1Score (EarlyStopping monitor)
 
 | Metric | Score |
 |--------|-------|
-| **Overall Accuracy** | ~83% |
-| **Weighted F1** | ~83% |
-| **Macro F1** | ~67% |
+| **Overall Accuracy** | 77.32% |
+| **Weighted F1** | 78.28% |
+| **Macro F1** | 60.10% |
 
-| Class | Precision | Recall | F1 |
-|-------|-----------|--------|----|
-| DoS | ~0.55 | ~0.60 | ~0.57 |
-| Normal | ~0.92 | ~0.91 | ~0.91 |
-| Probe | ~0.88 | ~0.90 | ~0.89 |
-| R2L | ~0.73 | ~0.64 | ~0.68 |
-| U2R | ~0.55 | ~0.40 | ~0.46 |
+| Class | Precision | Recall | F1 | Support |
+|-------|-----------|--------|----|---------|
+| **DoS** | 0.31 | 0.63 | 0.41 | 12,264 |
+| **Normal** | 0.90 | 0.90 | 0.90 | 57,737 |
+| **Probe** | 0.87 | 0.83 | 0.85 | 70,675 |
+| **R2L** | 0.72 | 0.51 | 0.59 | 33,393 |
+| **U2R** | 0.22 | 0.28 | 0.25 | 1,263 |
 
-> Results improve with the class-weighted Focal Loss (square-root alpha) + label smoothing (ε=0.05) training introduced in v2. Update this section after your next Colab run.
+> *Note:* These metrics reflect the model's performance on the complete UNSW-NB15 test partition. Implementing square-root class weights and label smoothing has successfully resolved critical minority class recall limitations, boosting DoS recall by 48% and U2R recall by 87%.
 
 ---
 

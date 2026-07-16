@@ -114,12 +114,12 @@ def send_burst(groups, category: str, count: int = 5):
 def auto_loop(groups):
     """Run an automated continuous traffic loop (mix of normal and attacks)."""
     print("\nStarting continuous traffic simulation. Press Ctrl+C to stop.")
-    print("Mixing normal traffic (90%) with periodic attacks (10%)...\n")
+    print("Mixing normal traffic (70%) with periodic attacks (30%)...\n")
     try:
         while True:
             # Decide traffic type
-            # 90% normal, 10% chance of random attack category
-            if random.random() < 0.90:
+            # 70% normal, 30% chance of random attack category
+            if random.random() < 0.70:
                 category = "Normal"
             else:
                 category = random.choice(["DoS", "Probe", "R2L", "U2R"])
@@ -129,8 +129,8 @@ def auto_loop(groups):
                 row = group.sample(1).iloc[0].to_dict()
                 send_record(row, category)
 
-            # Random interval between requests (e.g. 0.5 to 2.0 seconds)
-            time.sleep(random.uniform(0.5, 2.0))
+            # Fast random interval between requests (e.g. 0.1 to 0.4 seconds)
+            time.sleep(random.uniform(0.1, 0.4))
     except KeyboardInterrupt:
         print("\nContinuous simulation stopped.")
 
@@ -157,12 +157,13 @@ def main():
                 start_time = time.time()
                 try:
                     while time.time() - start_time < args.duration:
-                        category = "Normal" if random.random() < 0.90 else random.choice(["DoS", "Probe", "R2L", "U2R"])
+                        # 70% normal, 30% attacks
+                        category = "Normal" if random.random() < 0.70 else random.choice(["DoS", "Probe", "R2L", "U2R"])
                         group = groups.get(category)
                         if group is not None and len(group) > 0:
                             row = group.sample(1).iloc[0].to_dict()
                             send_record(row, category)
-                        time.sleep(random.uniform(0.5, 1.5))
+                        time.sleep(random.uniform(0.1, 0.4))
                 except KeyboardInterrupt:
                     print("Auto loop stopped.")
             else:
@@ -177,7 +178,7 @@ def main():
                         if group is not None and len(group) > 0:
                             row = group.sample(1).iloc[0].to_dict()
                             send_record(row, args.attack)
-                        time.sleep(random.uniform(0.4, 1.2))
+                        time.sleep(random.uniform(0.1, 0.4))
                 except KeyboardInterrupt:
                     print(f"{args.attack} loop stopped.")
             else:

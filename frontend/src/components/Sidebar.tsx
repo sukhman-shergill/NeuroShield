@@ -7,11 +7,11 @@ interface SidebarProps {
 }
 
 export default function Sidebar({ activeTab, setActiveTab, threatCount }: SidebarProps) {
-  const [currentTime, setCurrentTime] = useState(new Date().toISOString().substring(11, 19));
+  const [currentTime, setCurrentTime] = useState(new Date().toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false }));
 
   useEffect(() => {
     const timer = setInterval(() => {
-      setCurrentTime(new Date().toISOString().substring(11, 19));
+      setCurrentTime(new Date().toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false }));
     }, 1000);
     return () => clearInterval(timer);
   }, []);
@@ -96,7 +96,7 @@ export default function Sidebar({ activeTab, setActiveTab, threatCount }: Sideba
       {/* System Pulse Footer */}
       <div className="p-4 border-t border-[#1e2230] bg-[#0b0c12]" id="sidebar-footer">
         <div className="flex items-center justify-between text-[10px] font-mono text-slate-500">
-          <span>SYSTEM TIME (UTC)</span>
+          <span>SYSTEM TIME (IST)</span>
           <span className="text-slate-400 font-semibold">{currentTime}</span>
         </div>
         <div className="flex items-center justify-between text-[10px] font-mono text-slate-500 mt-1">

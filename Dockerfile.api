@@ -23,7 +23,7 @@ COPY . .
 RUN mkdir -p data/raw data/processed models outputs logs notebooks
 
 # Environment configuration
-ENV NEUROSHIELD_DATASET=nsl-kdd
+ENV NEUROSHIELD_DATASET=unsw-nb15
 ENV NEUROSHIELD_ORIGINS=http://localhost:3000,http://neuroshield-frontend:80
 ENV PYTHONUNBUFFERED=1
 

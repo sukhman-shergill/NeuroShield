@@ -155,7 +155,7 @@ export default function ModelPerformanceView() {
         </h4>
         <p className="text-[11px] text-slate-400 leading-relaxed mt-1">
           This model was trained using <code className="bg-slate-950 px-1 py-0.5 rounded font-mono text-indigo-300">Hybrid_CNN_LSTM_Training.ipynb</code> on
-          the NSL-KDD dataset.
+          the UNSW-NB15 dataset.
           {modelInfo && (
             <span> Trained for <strong className="text-slate-300">{modelInfo.total_epochs_trained} epochs</strong> in <strong className="text-slate-300">{Math.round(modelInfo.training_time_seconds)}s</strong> on <strong className="text-slate-300">{modelInfo.trained_at?.split('T')[0]}</strong>.</span>
           )}

@@ -160,7 +160,7 @@ def _save_per_class_metrics(
         },
         "classes": classes,
         "class_names": config.CLASS_NAMES,
-        "dataset": getattr(config, "ACTIVE_DATASET", "nsl-kdd"),
+        "dataset": getattr(config, "ACTIVE_DATASET", "unsw-nb15"),
     }
 
     with open(config.PER_CLASS_METRICS_PATH, "w") as f:

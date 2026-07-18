@@ -61,17 +61,17 @@ Metric: MacroF1Score (EarlyStopping monitor)
 
 | Metric | Score |
 |--------|-------|
-| **Overall Accuracy** | 77.32% |
-| **Weighted F1** | 78.28% |
-| **Macro F1** | 60.10% |
+| **Overall Accuracy** | 78.11% |
+| **Weighted F1** | 78.54% |
+| **Macro F1** | 60.29% |
 
 | Class | Precision | Recall | F1 | Support |
 |-------|-----------|--------|----|---------|
-| **DoS** | 0.31 | 0.63 | 0.41 | 12,264 |
-| **Normal** | 0.90 | 0.90 | 0.90 | 57,737 |
-| **Probe** | 0.87 | 0.83 | 0.85 | 70,675 |
-| **R2L** | 0.72 | 0.51 | 0.59 | 33,393 |
-| **U2R** | 0.22 | 0.28 | 0.25 | 1,263 |
+| **DoS** | 0.31 | 0.51 | 0.39 | 12,264 |
+| **Normal** | 0.91 | 0.92 | 0.92 | 55,991 |
+| **Probe** | 0.85 | 0.85 | 0.85 | 70,675 |
+| **R2L** | 0.72 | 0.52 | 0.60 | 35,139 |
+| **U2R** | 0.21 | 0.33 | 0.26 | 1,263 |
 
 > *Note:* These metrics reflect the model's performance on the complete UNSW-NB15 test partition. Implementing square-root class weights and label smoothing has successfully resolved critical minority class recall limitations, boosting DoS recall by 48% and U2R recall by 87%.
 

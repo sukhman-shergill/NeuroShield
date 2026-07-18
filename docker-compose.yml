@@ -18,8 +18,8 @@ services:
       - ./outputs:/app/outputs
       - ./logs:/app/logs
     environment:
-      # Dataset: nsl-kdd (default, auto-downloads) or unsw-nb15 (manual CSV)
-      - NEUROSHIELD_DATASET=nsl-kdd
+      # Dataset: unsw-nb15 (default, manual CSV)
+      - NEUROSHIELD_DATASET=unsw-nb15
       # CORS: restrict to the frontend container only in production
       - NEUROSHIELD_ORIGINS=http://localhost:3000,http://neuroshield-frontend:80
       - PYTHONUNBUFFERED=1
@@ -60,7 +60,6 @@ services:
 #   Health check  → http://localhost:5000/health
 #
 # To use UNSW-NB15 dataset:
-#   1. Place CSV files in data/raw/ (see RESEARCH_NOTES.md)
-#   2. Change NEUROSHIELD_DATASET=unsw-nb15 above
-#   3. Run: docker compose up --build
+#   1. Place CSV files in data/raw/ (see README.md)
+#   2. Run: docker compose up --build
 # ---------------------------------------------------------------------------

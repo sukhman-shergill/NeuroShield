@@ -435,7 +435,7 @@ export default function NetworkTrafficView() {
               </div>
             </div>
 
-            {/* Right: Selected Step's detailed tabular NSL-KDD features */}
+            {/* Right: Selected Step's detailed tabular UNSW-NB15 features */}
             <div className="glass-panel p-5 rounded-xl flex flex-col justify-between h-full min-h-[460px]">
               <div className="space-y-4">
                 <div className="flex items-center gap-2 pb-2 border-b border-slate-800">

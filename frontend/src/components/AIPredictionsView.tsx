@@ -50,7 +50,7 @@ export default function AIPredictionsView() {
       if (isCsv) {
         uploadFile(file);
       } else {
-        alert('Please upload a valid CSV or TXT file with NSL-KDD network features.');
+        alert('Please upload a valid CSV or TXT file with UNSW-NB15 network features.');
       }
     }
   };
@@ -63,7 +63,7 @@ export default function AIPredictionsView() {
       if (isCsv) {
         uploadFile(file);
       } else {
-        alert('Please upload a valid CSV or TXT file with NSL-KDD network features.');
+        alert('Please upload a valid CSV or TXT file with UNSW-NB15 network features.');
       }
     }
   };
@@ -244,7 +244,7 @@ export default function AIPredictionsView() {
         <div className="glass-panel p-5 rounded-xl flex flex-col h-[360px] justify-between">
           <div className="space-y-1">
             <h3 className="text-xs font-bold text-slate-200 tracking-wide uppercase">Ingest Traffic Feature Data</h3>
-            <p className="text-[10px] text-slate-400">Upload NSL-KDD formatted CSV files for batch model inference</p>
+            <p className="text-[10px] text-slate-400">Upload UNSW-NB15 formatted CSV files for batch model inference</p>
           </div>
 
           {/* Interactive Drag Drop stage */}
@@ -281,7 +281,7 @@ export default function AIPredictionsView() {
                 <span className="material-symbols-outlined text-4xl text-slate-500 group-hover:text-indigo-400">file_upload</span>
                 <div>
                   <p className="text-xs font-bold text-slate-300">Drag & drop feature table here</p>
-                  <p className="text-[10px] text-slate-500 mt-1">Supports standard NSL-KDD CSV/TXT tables</p>
+                  <p className="text-[10px] text-slate-500 mt-1">Supports standard UNSW-NB15 CSV/TXT tables</p>
                 </div>
                 {fileName && (
                   <div className="bg-slate-950 px-2 py-1 rounded text-[10px] font-mono text-indigo-400 border border-slate-800 inline-block max-w-[180px] truncate">
